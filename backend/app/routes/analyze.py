@@ -1,31 +1,39 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
-import os
-import tempfile
+from fileinput import filename
 
-from app.services.parser_service import extract_text_from_pdf
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from app.services.document_service import extract_document_text
 from app.orchestrator.compliance_pipeline import run_compliance_pipeline
 
 router = APIRouter()
 
 @router.post("/analyze")
-async def analyze_document(document_file: UploadFile = File(...)):
-    if not document_file.filename:
-        raise HTTPException(
-            status_code=400,
-            detail="Uploaded file must have a filename."
-        )
-
-    suffix = os.path.splitext(document_file.filename)[1]
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-        content = await document_file.read()
-        temp_file.write(content)
-        temp_path = temp_file.name
-
+async def analyze_document(file: UploadFile = File(...)):
     try:
-        document_text = extract_text_from_pdf(temp_path)
+        file_bytes = await file.read()
+
+        if not file_bytes:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="Uploaded file has no filename.")
+
+        document_text = extract_document_text(file.filename, file_bytes)
+
+        if not document_text.strip():
+            raise HTTPException(status_code=400, detail="Could not extract text from document.")
+
         result = run_compliance_pipeline(document_text)
-        return result
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+
+        return {
+            "status": "success",
+            "filename": file.filename,
+            "result": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
