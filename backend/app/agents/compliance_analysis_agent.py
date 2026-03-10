@@ -10,14 +10,26 @@ def compliance_analysis(document_text: str, policy_context: str) -> dict:
 
     response = invoke_nova(prompt)
 
-    # Depending on model output shape, you may need to adjust extraction.
-    # This is a placeholder pattern.
     try:
-        text_output = response["output"]["message"]["content"][0]["text"]
-        return json.loads(text_output)
-    except Exception:
+        text_output = response["output"]["message"]["content"][0]["text"].strip()
+        print("Raw model output:", text_output)  # Debugging line
+        # Remove markdown fences if model accidentally adds them
+        if text_output.startswith("```json"):
+            text_output = text_output.removeprefix("```json").removesuffix("```").strip()
+        elif text_output.startswith("```"):
+            text_output = text_output.removeprefix("```").removesuffix("```").strip()
+
+        parsed = json.loads(text_output)
+
         return {
-            "summary": "Could not parse model output cleanly.",
+            "summary": parsed.get("summary", ""),
+            "compliance_score": parsed.get("compliance_score"),
+            "issues": parsed.get("issues", [])
+        }
+
+    except Exception as e:
+        return {
+            "summary": f"Could not parse model output cleanly: {str(e)}",
             "compliance_score": None,
             "issues": []
         }

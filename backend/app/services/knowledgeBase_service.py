@@ -1,9 +1,12 @@
 import boto3
 from app.config import AWS_REGION, KNOWLEDGE_BASE_ID
 
-bedrock_agent_runtime = boto3.client("bedrock-agent-runtime", region_name=AWS_REGION)
+bedrock_agent_runtime = boto3.client(
+    "bedrock-agent-runtime",
+    region_name=AWS_REGION,
+)
 
-def retrieve_policy_context(query: str, top_k: int = 5) -> str:
+def retrieve_policy_context(query: str, top_k: int = 5) -> dict:
     response = bedrock_agent_runtime.retrieve(
         knowledgeBaseId=KNOWLEDGE_BASE_ID,
         retrievalQuery={"text": query},
@@ -14,15 +17,26 @@ def retrieve_policy_context(query: str, top_k: int = 5) -> str:
         }
     )
 
-    results = response.get("retrievalResults", [])
+    retrieval_results = response.get("retrievalResults", [])
+
     chunks = []
+    citations = []
 
-    for item in results:
-        content = item.get("content", {})
-        text = content.get("text", "")
+    for item in retrieval_results:
+        text = item.get("content", {}).get("text", "")
+        score = item.get("score")
         location = item.get("location", {})
-        source = location.get("s3Location", {}).get("uri", "unknown-source")
-        if text:
-            chunks.append(f"Source: {source}\n{text}")
+        s3_uri = location.get("s3Location", {}).get("uri", "unknown-source")
 
-    return "\n\n---\n\n".join(chunks)
+        if text:
+            chunks.append(f"Source: {s3_uri}\n{text}")
+            citations.append({
+                "source": s3_uri,
+                "score": score,
+                "excerpt": text[:400]
+            })
+
+    return {
+        "policy_context": "\n\n---\n\n".join(chunks),
+        "citations": citations
+    }
