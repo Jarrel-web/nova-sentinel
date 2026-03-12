@@ -1,8 +1,20 @@
 import json
+from typing import Optional
 from app.services.nova_service import invoke_nova
 from app.utils.prompts import COMPLIANCE_ANALYSIS_PROMPT
 
-def compliance_analysis(document_text: str, policy_context: str) -> dict:
+def compliance_analysis(document_text: str, policy_context: str, policies: Optional[list] = None) -> dict:
+    """
+    Analyze document for compliance issues against policies.
+    
+    Args:
+        document_text: The document to analyze
+        policy_context: Formatted policy context string with citations
+        policies: Optional list of policy dicts with metadata for enrichment
+    
+    Returns:
+        Dict with summary, compliance_score, and issues with citations
+    """
     prompt = COMPLIANCE_ANALYSIS_PROMPT.format(
         policy_context=policy_context,
         document_text=document_text
@@ -21,10 +33,21 @@ def compliance_analysis(document_text: str, policy_context: str) -> dict:
 
         parsed = json.loads(text_output)
 
+        # Validate and enhance issue citations
+        issues = parsed.get("issues", [])
+        for issue in issues:
+            # Ensure citation structure exists
+            if "citation" not in issue:
+                issue["citation"] = {
+                    "document_name": "unknown",
+                    "page_number": None,
+                    "relevant_excerpt": ""
+                }
+
         return {
             "summary": parsed.get("summary", ""),
             "compliance_score": parsed.get("compliance_score"),
-            "issues": parsed.get("issues", [])
+            "issues": issues
         }
 
     except Exception as e:

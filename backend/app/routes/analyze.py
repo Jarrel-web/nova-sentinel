@@ -1,6 +1,3 @@
-from fileinput import filename
-
-from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from app.services.document_service import extract_document_text
 from app.orchestrator.compliance_pipeline import run_compliance_pipeline

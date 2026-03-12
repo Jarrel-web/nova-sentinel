@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Shield with gradient -->
+  <defs>
+    <linearGradient id="shieldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#7c3aed;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#a78bfa;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Shield background -->
+  <path d="M 64 12 L 105 35 L 105 60 C 105 85 64 108 64 108 C 64 108 23 85 23 60 L 23 35 Z" fill="url(#shieldGradient)" stroke="#6d28d9" stroke-width="2" stroke-linejoin="round"/>
+  
+  <!-- Checkmark inside shield -->
+  <path d="M 45 70 L 55 80 L 80 50" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
