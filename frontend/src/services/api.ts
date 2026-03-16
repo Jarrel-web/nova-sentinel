@@ -1,28 +1,70 @@
+export interface IssueCitation {
+  document_name?: string;
+  page_number?: number | null;
+  relevant_excerpt?: string;
+}
+
+export interface ComplianceIssue {
+  id: string;
+  title: string;
+  risk_level: "high" | "medium" | "low" | string;
+  policy_reference: string;
+  evidence: string;
+  explanation: string;
+  recommended_action: string;
+  confidence_score: number;
+  citation: IssueCitation;
+}
+
 export interface ComplianceResult {
+  analysis_id?: number;
   summary: string;
   compliance_score: number;
-  risk_overview: {
+  overall_risk: "high" | "medium" | "low" | string;
+  risk_counts: {
     high: number;
     medium: number;
     low: number;
   };
-  top_issues: Array<{
-    title: string;
-    risk_level: string;
-    policy_reference: string;
-    source_document: string;
-    page_number?: number;
-    evidence: string;
-    why_it_matters: string;
-    recommended_action: string;
+  policies_referenced_count: number;
+  issues_count: number;
+  issues: ComplianceIssue[];
+  referenced_policies: string[];
+  pipeline_steps: Array<{
+    id: string;
+    label: string;
+    status: string;
+    detail: string;
   }>;
-  all_issues_count: number;
+}
+
+export interface AnalysisHistoryItem {
+  id: number;
+  filename: string;
+  summary: string;
+  compliance_score: number;
+  overall_risk: string;
+  review_status: "pending" | "approved" | "needs_changes" | "rejected" | string;
+  review_note?: string | null;
+  raw_result_json: ComplianceResult;
+  created_at: string;
 }
 
 interface AnalyzeResponse {
   status: string;
   filename: string;
+  analysis_id: number;
   result: ComplianceResult;
+}
+
+interface AnalysisHistoryResponse {
+  status: string;
+  items: AnalysisHistoryItem[];
+}
+
+interface AnalysisHistoryItemResponse {
+  status: string;
+  item: AnalysisHistoryItem;
 }
 
 const getApiUrl = (): string => {
@@ -53,9 +95,60 @@ export const analyzeDocument = async (file: File): Promise<ComplianceResult> => 
   
   // Check if response is wrapped with result property
   if ("result" in data && "status" in data) {
-    return (data as AnalyzeResponse).result;
+    const typed = data as AnalyzeResponse;
+    return {
+      ...typed.result,
+      analysis_id: typed.analysis_id,
+    };
   }
   
   // Otherwise assume it's already ComplianceResult
   return data as ComplianceResult;
+};
+
+export const fetchAnalyses = async (): Promise<AnalysisHistoryItem[]> => {
+  const response = await fetch(`${getApiUrl()}/api/analyses`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to load analyses: HTTP ${response.status}`);
+  }
+
+  const data: AnalysisHistoryResponse = await response.json();
+  return data.items;
+};
+
+export const fetchAnalysisById = async (id: number): Promise<AnalysisHistoryItem> => {
+  const response = await fetch(`${getApiUrl()}/api/analyses/${id}`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to load analysis ${id}: HTTP ${response.status}`);
+  }
+
+  const data: AnalysisHistoryItemResponse = await response.json();
+  return data.item;
+};
+
+export const updateAnalysisReview = async (
+  id: number,
+  reviewStatus: "pending" | "approved" | "needs_changes" | "rejected",
+  reviewNote?: string,
+): Promise<AnalysisHistoryItem> => {
+  const response = await fetch(`${getApiUrl()}/api/analyses/${id}/review`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      review_status: reviewStatus,
+      review_note: reviewNote || null,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData?.detail || `Failed to update review: HTTP ${response.status}`);
+  }
+
+  const data: AnalysisHistoryItemResponse = await response.json();
+  return data.item;
 };

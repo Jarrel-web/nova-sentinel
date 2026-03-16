@@ -1,13 +1,24 @@
-import boto3
 import os
+from typing import Any, Dict, Optional
+
+import boto3
+
 from app.config import AWS_REGION, KNOWLEDGE_BASE_ID
 
-bedrock_agent_runtime = boto3.client(
-    "bedrock-agent-runtime",
-    region_name=AWS_REGION,
-)
+_bedrock_agent_runtime = None
 
-def extract_document_metadata(s3_uri: str, location: dict) -> dict:
+
+def _get_bedrock_agent_runtime():
+    global _bedrock_agent_runtime
+    if _bedrock_agent_runtime is None:
+        _bedrock_agent_runtime = boto3.client(
+            "bedrock-agent-runtime",
+            region_name=AWS_REGION,
+        )
+    return _bedrock_agent_runtime
+
+
+def extract_document_metadata(s3_uri: str, location: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Extract document name and page number from S3 URI and location metadata.
     
@@ -37,8 +48,11 @@ def extract_document_metadata(s3_uri: str, location: dict) -> dict:
         "s3_uri": s3_uri
     }
 
-def retrieve_policy_context(query: str, top_k: int = 5) -> dict:
-    response = bedrock_agent_runtime.retrieve(
+def retrieve_policy_context(query: str, top_k: int = 5) -> Dict[str, Any]:
+    if not KNOWLEDGE_BASE_ID:
+        raise ValueError("KNOWLEDGE_BASE_ID is not configured.")
+
+    response = _get_bedrock_agent_runtime().retrieve(
         knowledgeBaseId=KNOWLEDGE_BASE_ID,
         retrievalQuery={"text": query},
         retrievalConfiguration={

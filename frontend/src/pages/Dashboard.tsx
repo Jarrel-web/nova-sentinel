@@ -1,42 +1,127 @@
-import React, { useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Pie, PieChart, Cell } from "recharts";
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle,
+  Clock3,
+  Download,
+  Eye,
+  FileSearch,
+  FileText,
+  History,
+  ShieldCheck,
+} from "lucide-react";
+
 import AppLayout from "@/components/AppLayout";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, CheckCircle, AlertCircle, FileText, ArrowLeft } from "lucide-react";
-import { ComplianceResult } from "@/services/api";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import { AnalysisHistoryItem, ComplianceIssue, ComplianceResult, fetchAnalyses, updateAnalysisReview } from "@/services/api";
+
+type DashboardLocationState = {
+  results?: ComplianceResult;
+  fileName?: string;
+  pdfUrl?: string | null;
+};
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { results, fileName } = location.state as { results: ComplianceResult; fileName: string } || {};
-  const [visibleRiskLevels, setVisibleRiskLevels] = useState<Set<string>>(new Set(['high', 'medium', 'low']));
+  const state = (location.state as DashboardLocationState) || {};
+  const { toast } = useToast();
 
-  // Redirect if no results data
-  if (!results) {
-    return (
-      <AppLayout>
-        <div className="max-w-6xl mx-auto py-12 text-center">
-          <p className="text-muted-foreground mb-6">No analysis results available</p>
-          <Button onClick={() => navigate("/analyze")} variant="outline">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Upload
-          </Button>
-        </div>
-      </AppLayout>
-    );
-  }
+  const [currentResult, setCurrentResult] = useState<ComplianceResult | null>(state.results ?? null);
+  const [currentAnalysisId, setCurrentAnalysisId] = useState<number | null>(state.results?.analysis_id ?? null);
+  const [currentFileName, setCurrentFileName] = useState(state.fileName ?? "");
+  const [pdfUrl, setPdfUrl] = useState<string | null>(state.pdfUrl ?? null);
+  const [historyItems, setHistoryItems] = useState<AnalysisHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [riskFilter, setRiskFilter] = useState("all");
+  const [selectedIssue, setSelectedIssue] = useState<ComplianceIssue | null>(null);
+  const [viewerPage, setViewerPage] = useState(1);
+  const [reviewStatus, setReviewStatus] = useState<"pending" | "approved" | "needs_changes" | "rejected">("pending");
+  const [reviewNote, setReviewNote] = useState("");
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const pdfSectionRef = useRef<HTMLDivElement | null>(null);
 
-  const toggleRiskLevel = (level: string) => {
-    const newVisible = new Set(visibleRiskLevels);
-    if (newVisible.has(level)) {
-      newVisible.delete(level);
-    } else {
-      newVisible.add(level);
+  useEffect(() => {
+    let active = true;
+
+    const loadHistory = async () => {
+      try {
+        const items = await fetchAnalyses();
+        if (!active) {
+          return;
+        }
+        setHistoryItems(items);
+
+        if (!currentResult && items[0]) {
+          setCurrentResult(items[0].raw_result_json);
+          setCurrentAnalysisId(items[0].id);
+          setCurrentFileName(items[0].filename);
+          setReviewStatus((items[0].review_status as "pending" | "approved" | "needs_changes" | "rejected") || "pending");
+          setReviewNote(items[0].review_note || "");
+        } else if (currentAnalysisId) {
+          const matchingItem = items.find((item) => item.id === currentAnalysisId);
+          if (matchingItem) {
+            setReviewStatus((matchingItem.review_status as "pending" | "approved" | "needs_changes" | "rejected") || "pending");
+            setReviewNote(matchingItem.review_note || "");
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch analysis history", error);
+      } finally {
+        if (active) {
+          setHistoryLoading(false);
+        }
+      }
+    };
+
+    loadHistory();
+
+    return () => {
+      active = false;
+    };
+  }, [currentAnalysisId, currentResult]);
+
+  useEffect(() => {
+    return () => {
+      if (state.pdfUrl) {
+        URL.revokeObjectURL(state.pdfUrl);
+      }
+    };
+  }, [state.pdfUrl]);
+
+  const result = currentResult;
+
+  const filteredIssues = useMemo(() => {
+    if (!result) {
+      return [];
     }
-    setVisibleRiskLevels(newVisible);
-  };
+
+    if (riskFilter === "all") {
+      return result.issues;
+    }
+
+    return result.issues.filter((issue) => issue.risk_level.toLowerCase() === riskFilter);
+  }, [result, riskFilter]);
+
+  const riskChartData = result
+    ? [
+        { name: "high", value: result.risk_counts.high, fill: "hsl(var(--destructive))" },
+        { name: "medium", value: result.risk_counts.medium, fill: "hsl(var(--warning))" },
+        { name: "low", value: result.risk_counts.low, fill: "hsl(var(--success))" },
+      ]
+    : [];
 
   const getRiskIcon = (level: string) => {
     switch (level?.toLowerCase()) {
@@ -47,7 +132,7 @@ const Dashboard = () => {
       case "low":
         return <CheckCircle className="w-4 h-4" />;
       default:
-        return null;
+        return <FileSearch className="w-4 h-4" />;
     }
   };
 
@@ -57,19 +142,116 @@ const Dashboard = () => {
     return "text-destructive";
   };
 
-  const calculateComplianceRadius = (score: number) => {
-    const radius = 45;
-    const circumference = 2 * Math.PI * radius;
-    const progress = (score / 100) * circumference;
-    return { radius, circumference, progress };
+  const getRiskBadgeClass = (risk: string) => {
+    switch (risk?.toLowerCase()) {
+      case "high":
+        return "bg-destructive/10 text-destructive border-destructive/20";
+      case "medium":
+        return "bg-warning/10 text-warning border-warning/20";
+      default:
+        return "bg-success/10 text-success border-success/20";
+    }
   };
 
-  const { radius, circumference, progress } = calculateComplianceRadius(results.compliance_score);
+  const getReviewBadgeClass = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "approved":
+        return "bg-success/10 text-success border-success/20";
+      case "needs_changes":
+        return "bg-warning/10 text-warning border-warning/20";
+      case "rejected":
+        return "bg-destructive/10 text-destructive border-destructive/20";
+      default:
+        return "bg-muted text-muted-foreground border-border";
+    }
+  };
+
+  const focusPdfViewer = (issue: ComplianceIssue, closePanel = false) => {
+    setViewerPage(issue.citation?.page_number || 1);
+
+    if (pdfSectionRef.current) {
+      pdfSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    if (closePanel) {
+      setSelectedIssue(null);
+    }
+  };
+
+  const openIssue = (issue: ComplianceIssue) => {
+    setSelectedIssue(issue);
+    focusPdfViewer(issue);
+  };
+
+  const exportJson = () => {
+    if (!result) {
+      return;
+    }
+
+    const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${currentFileName || "analysis-result"}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const loadHistoryResult = (item: AnalysisHistoryItem) => {
+    setCurrentResult(item.raw_result_json);
+    setCurrentAnalysisId(item.id);
+    setCurrentFileName(item.filename);
+    setPdfUrl(null);
+    setSelectedIssue(null);
+    setViewerPage(1);
+    setReviewStatus((item.review_status as "pending" | "approved" | "needs_changes" | "rejected") || "pending");
+    setReviewNote(item.review_note || "");
+  };
+
+  const saveReview = async (nextStatus: "pending" | "approved" | "needs_changes" | "rejected") => {
+    if (!currentAnalysisId) {
+      return;
+    }
+
+    setReviewSaving(true);
+    try {
+      const updated = await updateAnalysisReview(currentAnalysisId, nextStatus, reviewNote);
+      setReviewStatus(updated.review_status as "pending" | "approved" | "needs_changes" | "rejected");
+      setReviewNote(updated.review_note || "");
+      setHistoryItems((items) => items.map((item) => (item.id === updated.id ? updated : item)));
+      toast({
+        title: "Review saved",
+        description: `Status updated to ${updated.review_status.replace("_", " ")}.`,
+      });
+    } catch (error) {
+      console.error("Failed to update review status", error);
+      toast({
+        title: "Review update failed",
+        description: error instanceof Error ? error.message : "Could not save the review decision.",
+        variant: "destructive",
+      });
+    } finally {
+      setReviewSaving(false);
+    }
+  };
+
+  if (!result && !historyLoading) {
+    return (
+      <AppLayout>
+        <div className="max-w-6xl mx-auto py-12 text-center">
+          <p className="text-muted-foreground mb-6">No analysis results available yet.</p>
+          <Button onClick={() => navigate("/analyze")} variant="outline">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Upload
+          </Button>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
-      <div className="space-y-8 max-w-6xl mx-auto">
-        {/* Page Header */}
+      <div className="space-y-8 max-w-7xl mx-auto">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
@@ -82,328 +264,373 @@ const Dashboard = () => {
           </Button>
           <div className="flex-1">
             <h1 className="text-3xl md:text-4xl font-bold text-foreground">Analysis Results</h1>
-            <p className="text-base text-muted-foreground mt-1">{fileName}</p>
-          </div>
-        </div>
-
-        {/* Summary Section */}
-        <div className="grid md:grid-cols-2 gap-8">
-          {/* Compliance Score Card */}
-          <Card className="p-8 shadow-card border-border/50 rounded-3xl flex flex-col items-center justify-center min-h-80">
-            <div className="relative w-40 h-40 mb-6">
-              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                {/* Background circle */}
-                <circle
-                  cx="50"
-                  cy="50"
-                  r={radius}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  className="text-border/30"
-                />
-                {/* Progress circle */}
-                <circle
-                  cx="50"
-                  cy="50"
-                  r={radius}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeDasharray={circumference}
-                  strokeDashoffset={circumference - progress}
-                  strokeLinecap="round"
-                  className={`transition-all duration-1000 ${getScoreColor(results.compliance_score)}`}
-                />
-              </svg>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center">
-                  <div className={`text-5xl font-bold ${getScoreColor(results.compliance_score)}`}>
-                    {results.compliance_score}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1 font-medium">Compliance</div>
-                </div>
-              </div>
-            </div>
-            <p className="text-base text-muted-foreground text-center leading-relaxed">
-              {results.summary}
-            </p>
-          </Card>
-
-          {/* Risk Overview */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center">
-                <AlertTriangle className="w-5 h-5 text-secondary" />
-              </div>
-              <h3 className="text-2xl md:text-3xl font-bold text-foreground">Risk Overview</h3>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 pt-2">
-              {/* High Risk Card */}
-              <div className="bg-white dark:bg-slate-950 border-2 border-destructive/20 rounded-2xl p-5 hover:shadow-md transition-shadow">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-destructive/15 flex items-center justify-center flex-none">
-                      <AlertTriangle className="w-5 h-5 text-destructive" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-destructive">High Risk</p>
-                      <p className="text-xs text-muted-foreground">Critical issues requiring immediate attention</p>
-                    </div>
-                  </div>
-                  <div className="text-3xl font-bold text-destructive">{results.risk_overview.high}</div>
-                </div>
-              </div>
-
-              {/* Medium Risk Card */}
-              <div className="bg-white dark:bg-slate-950 border-2 border-warning/20 rounded-2xl p-5 hover:shadow-md transition-shadow">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-warning/15 flex items-center justify-center flex-none">
-                      <AlertCircle className="w-5 h-5 text-warning" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-warning">Medium Risk</p>
-                      <p className="text-xs text-muted-foreground">Issues that should be addressed</p>
-                    </div>
-                  </div>
-                  <div className="text-3xl font-bold text-warning">{results.risk_overview.medium}</div>
-                </div>
-              </div>
-
-              {/* Low Risk Card */}
-              <div className="bg-white dark:bg-slate-950 border-2 border-success/20 rounded-2xl p-5 hover:shadow-md transition-shadow">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-success/15 flex items-center justify-center flex-none">
-                      <CheckCircle className="w-5 h-5 text-success" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-success">Low Risk</p>
-                      <p className="text-xs text-muted-foreground">Minor items to monitor</p>
-                    </div>
-                  </div>
-                  <div className="text-3xl font-bold text-success">{results.risk_overview.low}</div>
-                </div>
-              </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="text-base text-muted-foreground">{currentFileName || "Recent analysis"}</p>
+              {result && (
+                <Badge variant="outline" className={getRiskBadgeClass(result.overall_risk)}>
+                  Overall risk: {result.overall_risk}
+                </Badge>
+              )}
             </div>
           </div>
+          <Button variant="outline" onClick={exportJson} disabled={!result}>
+            <Download className="w-4 h-4 mr-2" />
+            Export JSON
+          </Button>
         </div>
 
-        {/* Issues List */}
-        {results.top_issues.length > 0 && (
-          <div className="space-y-8">
-            {/* Issues Header */}
-            <div className="space-y-4 pb-6 border-b border-border/30">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center">
-                  <AlertTriangle className="w-5 h-5 text-secondary" />
-                </div>
-                <h3 className="text-2xl md:text-3xl font-bold text-foreground">
-                  Detected Issues
-                </h3>
-              </div>
-              <p className="text-base text-muted-foreground pl-13">
-                {results.all_issues_count} compliance issue{results.all_issues_count !== 1 ? "s" : ""} found in your document
-              </p>
+        {result && (
+          <>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <Card className="rounded-3xl border-border/50">
+                <CardHeader className="pb-3">
+                  <CardDescription>Compliance Score</CardDescription>
+                  <CardTitle className={`text-4xl ${getScoreColor(result.compliance_score)}`}>
+                    {result.compliance_score}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">{result.summary}</p>
+                </CardContent>
+              </Card>
 
-              {/* Risk Level Filter Buttons */}
-              <div className="flex flex-wrap gap-2 pt-2 pl-13">
-                <Button
-                  variant={visibleRiskLevels.has('high') ? 'default' : 'outline'}
-                  onClick={() => toggleRiskLevel('high')}
-                  className={`text-xs rounded-lg transition-all ${
-                    visibleRiskLevels.has('high')
-                      ? 'bg-destructive text-white hover:bg-destructive/90'
-                      : 'border-destructive/20 text-destructive hover:bg-destructive/5'
-                  }`}
-                >
-                  <AlertTriangle className="w-3 h-3 mr-1.5" />
-                  High ({results.risk_overview.high})
-                </Button>
-                <Button
-                  variant={visibleRiskLevels.has('medium') ? 'default' : 'outline'}
-                  onClick={() => toggleRiskLevel('medium')}
-                  className={`text-xs rounded-lg transition-all ${
-                    visibleRiskLevels.has('medium')
-                      ? 'bg-warning text-white hover:bg-warning/90'
-                      : 'border-warning/20 text-warning hover:bg-warning/5'
-                  }`}
-                >
-                  <AlertCircle className="w-3 h-3 mr-1.5" />
-                  Medium ({results.risk_overview.medium})
-                </Button>
-                <Button
-                  variant={visibleRiskLevels.has('low') ? 'default' : 'outline'}
-                  onClick={() => toggleRiskLevel('low')}
-                  className={`text-xs rounded-lg transition-all ${
-                    visibleRiskLevels.has('low')
-                      ? 'bg-success text-white hover:bg-success/90'
-                      : 'border-success/20 text-success hover:bg-success/5'
-                  }`}
-                >
-                  <CheckCircle className="w-3 h-3 mr-1.5" />
-                  Low ({results.risk_overview.low})
-                </Button>
-              </div>
+              <Card className="rounded-3xl border-border/50">
+                <CardHeader className="pb-3">
+                  <CardDescription>Total Issues</CardDescription>
+                  <CardTitle className="text-4xl">{result.issues_count}</CardTitle>
+                </CardHeader>
+                <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <FileSearch className="w-4 h-4" />
+                  Explainable findings with evidence and actions
+                </CardContent>
+              </Card>
+
+              <Card className="rounded-3xl border-border/50">
+                <CardHeader className="pb-3">
+                  <CardDescription>High Risk Count</CardDescription>
+                  <CardTitle className="text-4xl text-destructive">{result.risk_counts.high}</CardTitle>
+                </CardHeader>
+                <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <AlertTriangle className="w-4 h-4" />
+                  Highest-severity issues driving overall risk
+                </CardContent>
+              </Card>
+
+              <Card className="rounded-3xl border-border/50">
+                <CardHeader className="pb-3">
+                  <CardDescription>Policies Referenced</CardDescription>
+                  <CardTitle className="text-4xl">{result.policies_referenced_count}</CardTitle>
+                </CardHeader>
+                <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <ShieldCheck className="w-4 h-4" />
+                  Unique policy references cited by the analysis
+                </CardContent>
+              </Card>
             </div>
 
-            {/* Group Issues by Risk Level */}
-            {['high', 'medium', 'low'].map((riskLevel) => {
-              if (!visibleRiskLevels.has(riskLevel)) return null;
+            <div className="grid gap-6 xl:grid-cols-[1.5fr_0.9fr]">
+              <Card className="rounded-3xl border-border/50">
+                <CardHeader>
+                  <CardTitle className="text-xl">Issue Explorer</CardTitle>
+                  <CardDescription>
+                    Filter findings and open any issue to inspect evidence, explanation, citation, and recommended action.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <Tabs value={riskFilter} onValueChange={setRiskFilter}>
+                    <TabsList className="grid w-full grid-cols-4 rounded-2xl">
+                      <TabsTrigger value="all">All ({result.issues_count})</TabsTrigger>
+                      <TabsTrigger value="high">High ({result.risk_counts.high})</TabsTrigger>
+                      <TabsTrigger value="medium">Medium ({result.risk_counts.medium})</TabsTrigger>
+                      <TabsTrigger value="low">Low ({result.risk_counts.low})</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
 
-              const issuesAtLevel = results.top_issues.filter(
-                (issue) => issue.risk_level.toLowerCase() === riskLevel
-              );
-              if (issuesAtLevel.length === 0) return null;
-
-              const riskLabels = {
-                high: { 
-                  label: 'High Risk', 
-                  color: 'text-destructive', 
-                  textSecondary: 'text-foreground/80',
-                  cardBg: 'bg-white dark:bg-slate-950',
-                  sectionBg: 'bg-destructive/8',
-                  sectionBorder: 'border-destructive/20',
-                  accentBorder: 'border-destructive/30',
-                  icon: 'bg-destructive/15',
-                  dotColor: 'bg-destructive/60'
-                },
-                medium: { 
-                  label: 'Medium Risk', 
-                  color: 'text-warning', 
-                  textSecondary: 'text-foreground/80',
-                  cardBg: 'bg-white dark:bg-slate-950',
-                  sectionBg: 'bg-warning/8',
-                  sectionBorder: 'border-warning/20',
-                  accentBorder: 'border-warning/30',
-                  icon: 'bg-warning/15',
-                  dotColor: 'bg-warning/60'
-                },
-                low: { 
-                  label: 'Low Risk', 
-                  color: 'text-success', 
-                  textSecondary: 'text-foreground/80',
-                  cardBg: 'bg-white dark:bg-slate-950',
-                  sectionBg: 'bg-success/8',
-                  sectionBorder: 'border-success/20',
-                  accentBorder: 'border-success/30',
-                  icon: 'bg-success/15',
-                  dotColor: 'bg-success/60'
-                },
-              };
-
-              const style = riskLabels[riskLevel as keyof typeof riskLabels];
-
-              return (
-                <div key={riskLevel} className="space-y-4">
-                  {/* Risk Level Section Header */}
-                  <div className={`flex items-center gap-3 px-4 py-3 rounded-xl ${style.sectionBg} border ${style.sectionBorder}`}>
-                    <div className={`w-8 h-8 rounded-lg ${style.icon} flex items-center justify-center flex-none`}>
-                      {riskLevel === 'high' && <AlertTriangle className={`w-4 h-4 ${style.color}`} />}
-                      {riskLevel === 'medium' && <AlertCircle className={`w-4 h-4 ${style.color}`} />}
-                      {riskLevel === 'low' && <CheckCircle className={`w-4 h-4 ${style.color}`} />}
-                    </div>
-                    <h4 className={`text-sm font-semibold ${style.color}`}>{style.label}</h4>
-                    <span className="ml-auto text-xs font-medium text-muted-foreground">{issuesAtLevel.length} issue{issuesAtLevel.length !== 1 ? 's' : ''}</span>
-                  </div>
-
-                  {/* Issues in this risk level */}
                   <div className="space-y-3">
-                    {issuesAtLevel.map((issue, index) => (
-                      <Card
-                        key={index}
-                        className={`p-6 md:p-7 shadow-card transition-all duration-300 rounded-2xl overflow-hidden group hover:shadow-xl border-2 ${style.cardBg} ${style.accentBorder}`}
-                      >
-                        <div className={`absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-transparent via-current to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${style.color}`} />
-                        
-                        {/* Issue Header */}
-                        <div className="flex items-start gap-4 mb-5">
-                          <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 flex-none ${style.icon}`}>
-                            {getRiskIcon(issue.risk_level)}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold text-base md:text-lg text-foreground mb-2 leading-snug">{issue.title}</h4>
-                            <div className="flex flex-wrap gap-2">
-                              <Badge variant="outline" className="text-xs rounded-lg bg-muted/50 backdrop-blur border-border/60">
-                                {issue.policy_reference}
-                              </Badge>
-                              <Badge variant="outline" className="text-xs rounded-lg bg-muted/50 backdrop-blur border-border/60 flex items-center gap-1">
-                                <FileText className="w-3 h-3" />
-                                {issue.source_document}
-                              </Badge>
-                              <Badge variant="outline" className="text-xs rounded-lg bg-muted/50 backdrop-blur border-border/60">
-                                Page {issue.page_number}
-                              </Badge>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Issue Content */}
-                        <div className="space-y-5 pl-0 md:pl-15">
-                          {/* Evidence */}
-                          <div>
-                            <div className="flex items-center gap-2 mb-3">
-                              <div className={`w-2 h-2 rounded-full ${style.color}`} />
-                              <p className={`text-xs font-semibold ${style.color} uppercase tracking-widest`}>Evidence</p>
-                            </div>
-                            <div className={`${style.sectionBg} rounded-xl p-4 border ${style.sectionBorder} backdrop-blur-sm`}>
-                              <p className={`text-sm text-foreground font-medium leading-relaxed`}>{issue.evidence}</p>
-                            </div>
-                          </div>
-
-                          {/* Why It Matters */}
-                          <div>
-                            <div className="flex items-center gap-2 mb-3">
-                              <div className={`w-2 h-2 rounded-full ${style.color}`} />
-                              <p className={`text-xs font-semibold ${style.color} uppercase tracking-widest`}>Why It Matters</p>
-                            </div>
-                            <div className={`${style.sectionBg} rounded-xl p-4 border ${style.sectionBorder} backdrop-blur-sm`}>
-                              <p className={`text-sm text-foreground font-medium leading-relaxed`}>{issue.why_it_matters}</p>
-                            </div>
-                          </div>
-
-                          {/* Action Required */}
-                          <div>
-                            <div className="flex items-center gap-2 mb-3">
-                              <div className={`w-2 h-2 rounded-full ${style.color}`} />
-                              <p className={`text-xs font-semibold ${style.color} uppercase tracking-widest`}>Action Required</p>
-                            </div>
-                            <div className={`${style.sectionBg} rounded-xl p-4 border ${style.sectionBorder} backdrop-blur-sm`}>
-                              <p className={`text-sm text-foreground font-medium leading-relaxed`}>{issue.recommended_action}</p>
-                            </div>
-                          </div>
-                        </div>
+                    {filteredIssues.length === 0 && (
+                      <Card className="rounded-2xl border-dashed p-6 text-center text-muted-foreground">
+                        No issues match the current filter.
                       </Card>
+                    )}
+
+                    {filteredIssues.map((issue) => (
+                      <button
+                        type="button"
+                        key={issue.id}
+                        onClick={() => openIssue(issue)}
+                        className="w-full text-left"
+                      >
+                        <Card className="rounded-2xl border-border/60 p-5 transition hover:border-primary/40 hover:shadow-lg">
+                          <div className="flex items-start gap-4">
+                            <div className={`mt-1 rounded-xl p-2 ${getRiskBadgeClass(issue.risk_level)}`}>
+                              {getRiskIcon(issue.risk_level)}
+                            </div>
+                            <div className="flex-1 space-y-3">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h3 className="text-base font-semibold">{issue.title}</h3>
+                                <Badge variant="outline" className={getRiskBadgeClass(issue.risk_level)}>
+                                  {issue.risk_level}
+                                </Badge>
+                                <Badge variant="outline">{Math.round(issue.confidence_score * 100)}% confidence</Badge>
+                              </div>
+                              <p className="text-sm text-muted-foreground">{issue.explanation}</p>
+                              <div className="flex flex-wrap gap-2 text-xs">
+                                <Badge variant="secondary">{issue.policy_reference}</Badge>
+                                <Badge variant="outline">
+                                  <FileText className="w-3 h-3 mr-1" />
+                                  {issue.citation?.document_name || "Source document"}
+                                </Badge>
+                                {issue.citation?.page_number && <Badge variant="outline">Page {issue.citation.page_number}</Badge>}
+                              </div>
+                            </div>
+                            <Eye className="w-4 h-4 text-muted-foreground" />
+                          </div>
+                        </Card>
+                      </button>
                     ))}
                   </div>
-                </div>
-              );
-            })}
+                </CardContent>
+              </Card>
 
-            {/* No visible issues message */}
-            {['high', 'medium', 'low'].every((level) => !visibleRiskLevels.has(level)) && (
-              <div className="text-center py-12">
-                <p className="text-base text-muted-foreground">Select at least one risk level to view issues</p>
+              <div className="space-y-6">
+                <Card className="rounded-3xl border-border/50">
+                  <CardHeader>
+                    <CardTitle className="text-xl">Review Decision</CardTitle>
+                    <CardDescription>Record a lightweight approval outcome for this analysis.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline" className={getReviewBadgeClass(reviewStatus)}>
+                        Review status: {reviewStatus.replace("_", " ")}
+                      </Badge>
+                      <Badge variant="outline" className={getRiskBadgeClass(result.overall_risk)}>
+                        AI risk: {result.overall_risk}
+                      </Badge>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <Button
+                        variant={reviewStatus === "approved" ? "default" : "outline"}
+                        onClick={() => saveReview("approved")}
+                        disabled={reviewSaving || !currentAnalysisId}
+                        className="rounded-xl"
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        variant={reviewStatus === "needs_changes" ? "default" : "outline"}
+                        onClick={() => saveReview("needs_changes")}
+                        disabled={reviewSaving || !currentAnalysisId}
+                        className="rounded-xl"
+                      >
+                        Needs Changes
+                      </Button>
+                      <Button
+                        variant={reviewStatus === "rejected" ? "destructive" : "outline"}
+                        onClick={() => saveReview("rejected")}
+                        disabled={reviewSaving || !currentAnalysisId}
+                        className="rounded-xl"
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-foreground">Reviewer note</p>
+                      <Textarea
+                        value={reviewNote}
+                        onChange={(event) => setReviewNote(event.target.value)}
+                        placeholder="Optional note for the decision..."
+                        className="min-h-24 rounded-2xl"
+                      />
+                      <div className="flex justify-end">
+                        <Button
+                          variant="secondary"
+                          onClick={() => saveReview(reviewStatus)}
+                          disabled={reviewSaving || !currentAnalysisId}
+                          className="rounded-xl"
+                        >
+                          {reviewSaving ? "Saving..." : "Save Note"}
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="rounded-3xl border-border/50">
+                  <CardHeader>
+                    <CardTitle className="text-xl">Risk Distribution</CardTitle>
+                    <CardDescription>Severity mix across normalized findings.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ChartContainer
+                      className="mx-auto aspect-square h-[260px]"
+                      config={{
+                        high: { label: "High", color: "hsl(var(--destructive))" },
+                        medium: { label: "Medium", color: "hsl(var(--warning))" },
+                        low: { label: "Low", color: "hsl(var(--success))" },
+                      }}
+                    >
+                      <PieChart>
+                        <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
+                        <Pie data={riskChartData} dataKey="value" nameKey="name" innerRadius={65} outerRadius={95} strokeWidth={5}>
+                          {riskChartData.map((entry) => (
+                            <Cell key={entry.name} fill={entry.fill} />
+                          ))}
+                        </Pie>
+                        <ChartLegend content={<ChartLegendContent nameKey="name" />} />
+                      </PieChart>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+
+                <Card className="rounded-3xl border-border/50">
+                  <CardHeader>
+                    <CardTitle className="text-xl">Policy Coverage</CardTitle>
+                    <CardDescription>Unique policy references surfaced by the analysis.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {result.referenced_policies.length === 0 && (
+                      <p className="text-sm text-muted-foreground">No specific policy references were returned.</p>
+                    )}
+                    {result.referenced_policies.map((policy) => (
+                      <div key={policy} className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+                        {policy}
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
               </div>
-            )}
-          </div>
-        )}
-
-        {results.top_issues.length === 0 && (
-          <Card className="p-12 text-center shadow-card border-border/50 bg-gradient-to-br from-success/5 to-success/10 rounded-3xl">
-            <div className="w-16 h-16 rounded-2xl bg-success/10 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-8 h-8 text-success" />
             </div>
-            <h3 className="font-display text-xl font-semibold text-foreground mb-2">No Issues Found</h3>
-            <p className="text-base text-muted-foreground">
-              Your document appears to comply with all applicable policies
-            </p>
-          </Card>
+
+            <div className="grid gap-6">
+              <Card className="rounded-3xl border-border/50" ref={pdfSectionRef}>
+                <CardHeader>
+                  <CardTitle className="text-xl">PDF Evidence Viewer</CardTitle>
+                  <CardDescription>
+                    {pdfUrl
+                      ? "Fast fallback viewer: jump to a cited page and inspect the evidence excerpt beside it."
+                      : "Upload a PDF in the current session to enable the embedded viewer. History items still show linked evidence in the issue panel."}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4 xl:grid-cols-[1.7fr_0.7fr]">
+                  <div className="min-h-[680px] overflow-hidden rounded-2xl border border-border/60 bg-muted/20">
+                    {pdfUrl ? (
+                      <iframe
+                        title="PDF viewer"
+                        src={`${pdfUrl}#page=${viewerPage}&zoom=page-fit`}
+                        className="h-[680px] w-full"
+                      />
+                    ) : (
+                      <div className="flex h-[680px] items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                        PDF preview is only available for the file you just uploaded.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-4">
+                    <Card className="rounded-2xl border-border/60 bg-amber-50/40">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Highlighted Evidence</CardTitle>
+                        <CardDescription>
+                          {selectedIssue?.citation?.page_number ? `Jumped to page ${selectedIssue.citation.page_number}.` : "Select an issue to focus the viewer."}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="rounded-xl border border-amber-200/60 bg-amber-100/60 p-4 text-sm leading-6">
+                          {selectedIssue?.evidence || "No issue selected yet."}
+                        </p>
+                      </CardContent>
+                    </Card>
+
+                    {selectedIssue && (
+                      <div className="rounded-2xl border border-border/60 p-4">
+                        <div className="mb-2 flex items-center gap-2">
+                          {getRiskIcon(selectedIssue.risk_level)}
+                          <p className="font-semibold">{selectedIssue.title}</p>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{selectedIssue.policy_reference}</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="grid gap-6 xl:grid-cols-2">
+                <Card className="rounded-3xl border-border/50">
+                  <CardHeader>
+                    <CardTitle className="text-xl">AI Pipeline Timeline</CardTitle>
+                    <CardDescription>How the result moved from intake to explainable issue cards.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {result.pipeline_steps.map((step, index) => (
+                      <div key={step.id} className="flex gap-4">
+                        <div className="flex flex-col items-center">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+                            <Clock3 className="w-4 h-4" />
+                          </div>
+                          {index < result.pipeline_steps.length - 1 && <div className="mt-2 h-full w-px bg-border" />}
+                        </div>
+                        <div className="pb-4">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold">{step.label}</p>
+                            <Badge variant="outline">{step.status}</Badge>
+                          </div>
+                          <p className="mt-1 text-sm text-muted-foreground">{step.detail}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                <Card className="rounded-3xl border-border/50">
+                  <CardHeader>
+                    <CardTitle className="text-xl flex items-center gap-2">
+                      <History className="w-5 h-5" />
+                      Analysis History
+                    </CardTitle>
+                    <CardDescription>Stored automatically in SQLite after each successful analysis.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="h-[320px] pr-4">
+                      <div className="space-y-3">
+                        {historyLoading && <p className="text-sm text-muted-foreground">Loading history...</p>}
+                        {!historyLoading && historyItems.length === 0 && (
+                          <p className="text-sm text-muted-foreground">No saved analyses yet.</p>
+                        )}
+                        {historyItems.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => loadHistoryResult(item)}
+                            className="w-full text-left"
+                          >
+                            <Card className="rounded-2xl border-border/60 p-4 transition hover:border-primary/40">
+                              <div className="flex items-start justify-between gap-4">
+                                <div>
+                                  <p className="font-medium">{item.filename}</p>
+                                  <p className="mt-1 text-xs text-muted-foreground">{new Date(item.created_at).toLocaleString()}</p>
+                                </div>
+                                <Badge variant="outline" className={getRiskBadgeClass(item.overall_risk)}>
+                                  Risk: {item.overall_risk}
+                                </Badge>
+                              </div>
+                              <div className="mt-2">
+                                <Badge variant="outline" className={getReviewBadgeClass(item.review_status)}>
+                                  Review: {item.review_status.replace("_", " ")}
+                                </Badge>
+                              </div>
+                              <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{item.summary}</p>
+                            </Card>
+                          </button>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </>
         )}
 
-        {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-3 justify-center pt-4">
           <Button
             variant="outline"
@@ -414,6 +641,68 @@ const Dashboard = () => {
             Analyze Another File
           </Button>
         </div>
+
+        <Sheet open={!!selectedIssue} onOpenChange={(open) => !open && setSelectedIssue(null)}>
+          <SheetContent side="right" className="flex h-full w-full flex-col p-0 sm:max-w-xl">
+            {selectedIssue && (
+              <>
+                <SheetHeader className="border-b border-border/60 px-6 py-6">
+                  <SheetTitle>{selectedIssue.title}</SheetTitle>
+                  <SheetDescription>
+                    {selectedIssue.policy_reference} | {Math.round(selectedIssue.confidence_score * 100)}% confidence
+                  </SheetDescription>
+                </SheetHeader>
+
+                <ScrollArea className="min-h-0 flex-1">
+                  <div className="space-y-4 px-6 py-6">
+                    <Card className="rounded-2xl">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Evidence</CardTitle>
+                      </CardHeader>
+                      <CardContent className="text-sm leading-6">{selectedIssue.evidence}</CardContent>
+                    </Card>
+
+                    <Card className="rounded-2xl">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Explanation</CardTitle>
+                      </CardHeader>
+                      <CardContent className="text-sm leading-6">{selectedIssue.explanation}</CardContent>
+                    </Card>
+
+                    <Card className="rounded-2xl">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Recommended Action</CardTitle>
+                      </CardHeader>
+                      <CardContent className="text-sm leading-6">{selectedIssue.recommended_action}</CardContent>
+                    </Card>
+
+                    <Card className="rounded-2xl">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Citation</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2 text-sm">
+                        <p>Document: {selectedIssue.citation?.document_name || "Source document"}</p>
+                        <p>Page: {selectedIssue.citation?.page_number || "Not available"}</p>
+                        <p>{selectedIssue.citation?.relevant_excerpt || selectedIssue.evidence}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </ScrollArea>
+
+                {pdfUrl && (
+                  <div className="border-t border-border/60 bg-background/95 px-6 py-4 backdrop-blur">
+                    <Button className="w-full" onClick={() => focusPdfViewer(selectedIssue, true)}>
+                      Jump To PDF Viewer
+                    </Button>
+                    <p className="mt-2 text-center text-xs text-muted-foreground">
+                      Scrolls to the PDF section and jumps to the cited page when available.
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </SheetContent>
+        </Sheet>
       </div>
     </AppLayout>
   );

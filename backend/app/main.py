@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.health import router as health_router
 from app.routes.analyze import router as analyze_router
+from app.services.history_service import initialize_history_db
 
 app = FastAPI(
     title="NovaSentinel API",
@@ -16,7 +17,7 @@ app.add_middleware(
     allow_origins=["http://localhost:8080"
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
@@ -24,6 +25,8 @@ app.add_middleware(
 # Include routers AFTER middleware
 app.include_router(health_router)
 app.include_router(analyze_router, prefix="/api", tags=["analyze"])
+
+initialize_history_db()
 
 
 @app.get("/")

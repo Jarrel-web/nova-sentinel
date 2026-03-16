@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+﻿import React, { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,11 +15,11 @@ const UploadSection = () => {
 
   const handleFileSelect = (selectedFile: File) => {
     // Validate file type
-    const allowedTypes = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"];
+    const allowedTypes = ["application/pdf", "text/plain"];
     if (!allowedTypes.includes(selectedFile.type)) {
       toast({
         title: "Invalid file type",
-        description: "Please upload a PDF, DOCX, or TXT file",
+        description: "Please upload a PDF or TXT file",
         variant: "destructive",
       });
       return;
@@ -64,6 +64,7 @@ const UploadSection = () => {
     setIsAnalyzing(true);
     try {
       const analysisResult = await analyzeDocument(file);
+      const pdfUrl = file.type === "application/pdf" ? URL.createObjectURL(file) : null;
       toast({
         title: "Analysis complete",
         description: "Your document has been analyzed successfully",
@@ -73,6 +74,7 @@ const UploadSection = () => {
         state: {
           results: analysisResult,
           fileName: file.name,
+          pdfUrl,
         },
       });
     } catch (error) {
@@ -118,13 +120,13 @@ const UploadSection = () => {
               </div>
               <h3 className="font-display text-xl md:text-2xl font-semibold text-foreground mb-2">Drag & drop your document</h3>
               <p className="text-base text-muted-foreground mb-1">or click to browse files</p>
-              <p className="text-sm text-muted-foreground">PDF, DOCX, or TXT • Up to 50MB</p>
+              <p className="text-sm text-muted-foreground">PDF or TXT | Up to 50MB</p>
 
               <input
                 ref={fileInputRef}
                 type="file"
                 className="hidden"
-                accept=".pdf,.docx,.txt"
+                accept=".pdf,.txt"
                 onChange={(e) => {
                   if (e.target.files?.[0]) {
                     handleFileSelect(e.target.files[0]);
@@ -182,3 +184,5 @@ const UploadSection = () => {
 };
 
 export default UploadSection;
+
+

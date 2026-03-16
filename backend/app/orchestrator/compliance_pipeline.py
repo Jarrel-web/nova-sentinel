@@ -1,8 +1,10 @@
 from app.agents.document_intake_agent import document_intake
 from app.agents.policy_retrieval_agent import policy_retrieval
 from app.agents.compliance_analysis_agent import compliance_analysis
+from app.services.analysis_normalizer import normalize_analysis_result
 
-def run_compliance_pipeline(document_text: str) -> dict:
+
+def run_compliance_pipeline(document_text: str, filename: str | None = None) -> dict:
     """
     Run complete compliance analysis pipeline.
     
@@ -31,40 +33,31 @@ def run_compliance_pipeline(document_text: str) -> dict:
     # Step 3: Compliance analysis - analyze against policies with citation data
     analysis_result = compliance_analysis(document_text, policy_context, policies)
 
-    # Step 4: Calculate risk overview
-    issues = analysis_result.get("issues", [])
-    risk_counts = {"high": 0, "medium": 0, "low": 0}
-    for issue in issues:
-        risk_level = issue.get("risk_level", "").lower()
-        if risk_level in risk_counts:
-            risk_counts[risk_level] += 1
-
-    # Step 5: Transform issues to top_issues format
-    top_issues = []
-    for issue in issues:
-        citation = issue.get("citation", {})
-        top_issue = {
-            "title": issue.get("issue"),
-            "risk_level": issue.get("risk_level"),
-            "policy_reference": issue.get("policy_reference"),
-            "source_document": citation.get("document_name"),
-            "page_number": citation.get("page_number"),
-            "evidence": citation.get("relevant_excerpt", ""),
-            "why_it_matters": issue.get("explanation"),
-            "recommended_action": issue.get("suggested_fix")
-        }
-        top_issues.append(top_issue)
-
-    # Step 6: Assemble final result
-    final_result = {
-        "summary": analysis_result.get("summary"),
-        "compliance_score": analysis_result.get("compliance_score"),
-        "risk_overview": {
-            "high": risk_counts["high"],
-            "medium": risk_counts["medium"],
-            "low": risk_counts["low"]
+    pipeline_steps = [
+        {
+            "id": "intake",
+            "label": "Document intake",
+            "status": "completed",
+            "detail": f"Prepared {document_summary.get('num_chunks', 0)} chunk(s) for downstream analysis.",
         },
-        "top_issues": top_issues,
-        "all_issues_count": len(issues)
-    }
-    return final_result
+        {
+            "id": "policy-retrieval",
+            "label": "Policy retrieval",
+            "status": "completed",
+            "detail": f"Matched {len(policies)} policy source(s) and {len(citations)} citation(s).",
+        },
+        {
+            "id": "analysis",
+            "label": "AI compliance analysis",
+            "status": "completed",
+            "detail": f"Generated {len(analysis_result.get('issues', []))} raw issue candidate(s).",
+        },
+        {
+            "id": "normalization",
+            "label": "Result normalization",
+            "status": "completed",
+            "detail": "Deduplicated overlapping findings and prepared explainable issue cards.",
+        },
+    ]
+
+    return normalize_analysis_result(analysis_result, filename=filename, pipeline_steps=pipeline_steps)

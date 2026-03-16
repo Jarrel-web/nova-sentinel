@@ -1,1 +1,3 @@
 .vscode/
+backend/nova_sentinel.db
+frontend/dist/
