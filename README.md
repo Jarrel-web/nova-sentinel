@@ -378,20 +378,16 @@ npm run test
 
 ## Demo Screenshots
 
-Add screenshots or GIFs here before submission.
-
-
-```md
-## Demo Screenshots
-
 ### Landing Page
-
+![Landing Page](docs/screenshots/landing_page.png)
 
 ### Dashboard
-
+![Dashboard](docs/screenshots/dashboard-1.png)
+![Dashboard](docs/screenshots/dashboard-2.png)
+![Dashboard](docs/screenshots/dashboard-3.png)
 
 ### PDF Viewer
-
+![PDF Viewer](docs/screenshots/pdf_viewer.png)
 ```
 
 ---
