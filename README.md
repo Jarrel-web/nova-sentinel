@@ -136,32 +136,22 @@ The frontend renders the normalized output into a dashboard with:
 
 ## Technology Stack
 
-### Backend
-- Python
-- FastAPI
-- SQLite
-- Pydantic
-- Uvicorn
-- boto3
-- pypdf
+## 💻 Tech Stack
 
-### Frontend
-- React
-- Vite
-- TypeScript
-- Recharts
-- Tailwind CSS
-- Radix UI components
-
-### Data & Persistence
-- SQLite for analysis history and review metadata
-
-### AI / Retrieval
-- Amazon Bedrock
-- Amazon Bedrock Knowledge Base
-
-### Storage
-- Amazon S3 (optional, depending on retrieval/citation setup)
+![Python](https://img.shields.io/badge/python-%233776AB.svg?style=for-the-badge&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/fastapi-%23009688.svg?style=for-the-badge&logo=fastapi&logoColor=white)
+![TypeScript](https://img.shields.io/badge/typescript-%23007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/react-%2320232a.svg?style=for-the-badge&logo=react&logoColor=%2361DAFB)
+![Vite](https://img.shields.io/badge/vite-%23646CFF.svg?style=for-the-badge&logo=vite&logoColor=white)
+![TailwindCSS](https://img.shields.io/badge/tailwindcss-%2338B2AC.svg?style=for-the-badge&logo=tailwind-css&logoColor=white)
+![SQLite](https://img.shields.io/badge/sqlite-%2307405E.svg?style=for-the-badge&logo=sqlite&logoColor=white)
+![Pydantic](https://img.shields.io/badge/pydantic-E92063?style=for-the-badge&logo=pydantic&logoColor=white)
+![Uvicorn](https://img.shields.io/badge/uvicorn-%23499848.svg?style=for-the-badge&logo=python&logoColor=white)
+![Amazon AWS](https://img.shields.io/badge/Amazon%20AWS-%23FF9900.svg?style=for-the-badge&logo=amazon-aws&logoColor=white)
+![Amazon S3](https://img.shields.io/badge/Amazon%20S3-%23569A31.svg?style=for-the-badge&logo=amazons3&logoColor=white)
+![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)
+![npm](https://img.shields.io/badge/npm-%23CB3837.svg?style=for-the-badge&logo=npm&logoColor=white)
+![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)
 
 > Note: The current implementation uses SQLite directly for persistence rather than SQLAlchemy, and uses Recharts for visualization in place of Chart.js.
 
@@ -388,9 +378,7 @@ npm run test
 
 ### PDF Viewer
 ![PDF Viewer](docs/screenshots/pdf_viewer.png)
-```
 
----
 
 ## Future Improvements
 
